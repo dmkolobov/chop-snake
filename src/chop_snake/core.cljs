@@ -1,6 +1,8 @@
 (ns chop-snake.core
+  (:require-macros [cljs.core.async.macros :refer [go]])
   (:require [om.core :as om :include-macros true]
-            [om.dom :as dom :include-macros true]))
+            [om.dom :as dom :include-macros true]
+            [cljs.core.async :refer [put! chan <!]]))
 
 (defn equals-to [x] (fn [y] (= x y)))
 
@@ -12,6 +14,11 @@
   (let [[x y] point
         [dx dy] ray]
     [(+ x dx) (+ y dy)]))
+
+(defn scale [ray scalar]
+  (let [[dx dy] ray]
+    [(* dx scalar)
+     (* dy scalar)]))
 
 (defn draw-square [mark grid point]
   (let [[x y] point] (assoc-in grid [y x] mark)))
@@ -92,6 +99,16 @@
   (vec (repeat n
               (vec (repeat n x)))))
 
+(defn parse-key-code [code]
+  (cond (= code 38)
+          :up
+        (= code 39)
+          :right
+        (= code 40)
+          :down
+        (= code 37)
+          :left))
+
 (defn game-view [game owner]
   (reify
     om/IInitState
@@ -101,38 +118,44 @@
                          `([1 3])
                          0
                          [1 0]
-                         :alive)})
+                         :alive)
+       :keyboard-input (chan)})
     om/IWillMount
     (will-mount [_]
+        (go (loop []
+              (let [keypress (<! (om/get-state owner :keyboard-input))]
+                (om/update-state! owner
+                                  [:game :direction]
+                                  (fn [direction]
+                                    (let [new-direction (cond (= keypress :up)
+                                                                [0 -1]
+                                                              (= keypress :right)
+                                                                [1 0]
+                                                              (= keypress :down)
+                                                                [0 1]
+                                                              (= keypress :left)
+                                                                [-1 0])
+                                          snake (om/get-state owner [:game :snake])
+                                          head (last snake)
+                                          neck (last (butlast snake))]
+                                      (if (= neck (translate head new-direction))
+                                        direction
+                                        new-direction))))
+                (recur))))
         (js/setInterval (fn []
-                          (om/update-state! owner
-                                            :game
-                                            step))
+                          (om/update-state! owner :game step))
                         250))
 
     om/IRenderState
     (render-state [this state]
-      (dom/div #js {:className "game"
+      (dom/div #js {:className "game scanlines"
                     :tabIndex "1"
                     :onKeyDown (fn [e]
-                        (om/update-state! owner
-                                          [:game :direction]
-                                          (fn [direction]
-                                            (cond (and (= (.-keyCode e) 38) (not= direction [0 1]))
-                                                  [0 -1]
-
-                                                  (and (= (.-keyCode e) 39) (not= direction [-1 0]))
-                                                  [1 0]
-
-                                                  (and (= (.-keyCode e) 40) (not= direction [0 -1]))
-                                                  [0 1]
-
-                                                  (and (= (.-keyCode e) 37) (not= direction [1 0]))
-                                                  [-1 0]
-                                                  
-                                                  :else 
-                                                  direction))))}
-               (render-screen (draw-game (:game state)))))))
+                                  (put! (:keyboard-input state)
+                                        (parse-key-code (.-keyCode e))))}
+               (if (= (get-in state [:game :status]) :dead)
+                 (render-screen (square-grid 16 1))
+                 (render-screen (draw-game (:game state))))))))
 
 (om/root
   (fn [app owner]
