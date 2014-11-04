@@ -100,14 +100,10 @@
               (vec (repeat n x)))))
 
 (defn parse-key-code [code]
-  (cond (= code 38)
-          :up
-        (= code 39)
-          :right
-        (= code 40)
-          :down
-        (= code 37)
-          :left))
+  (cond (= code 38) :up
+        (= code 39) :right
+        (= code 40) :down
+        (= code 37) :left))
 
 (defn game-view [game owner]
   (reify
@@ -149,7 +145,7 @@
     om/IRenderState
     (render-state [this state]
       (dom/div #js {:className "game scanlines"
-                    :tabIndex "1"
+                    :tabIndex "0"
                     :onKeyDown (fn [e]
                                   (put! (:keyboard-input state)
                                         (parse-key-code (.-keyCode e))))}
