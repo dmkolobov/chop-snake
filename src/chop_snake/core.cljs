@@ -117,18 +117,21 @@
                     :onKeyDown (fn [e]
                         (om/update-state! owner
                                           [:game :direction]
-                                          (fn [_]
-                                            (cond (= (.-keyCode e) 38 )
+                                          (fn [direction]
+                                            (cond (and (= (.-keyCode e) 38) (not= direction [0 1]))
                                                   [0 -1]
 
-                                                  (= (.-keyCode e) 39)
+                                                  (and (= (.-keyCode e) 39) (not= direction [-1 0]))
                                                   [1 0]
 
-                                                  (= (.-keyCode e) 40)
+                                                  (and (= (.-keyCode e) 40) (not= direction [0 -1]))
                                                   [0 1]
 
-                                                  (= (.-keyCode e) 37)
-                                                  [-1 0]))))}
+                                                  (and (= (.-keyCode e) 37) (not= direction [1 0]))
+                                                  [-1 0]
+                                                  
+                                                  :else 
+                                                  direction))))}
                (render-screen (draw-game (:game state)))))))
 
 (om/root
