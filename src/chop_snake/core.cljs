@@ -4,10 +4,6 @@
             [om.dom :as dom :include-macros true]
             [cljs.core.async :refer [put! chan <!]]))
 
-(defn equals-to [x] (fn [y] (= x y)))
-
-(defn in? [x coll] (some (equals-to x) coll))
-
 ;; Grid Functions
 
 (defn translate [point ray]
@@ -34,48 +30,53 @@
 (def food-mark 1)
 (def snake-mark 2)
 
-(defn move-snake [snake position]
-  (concat (rest snake) (list position)))
-
-(defn grow-snake [snake position]
-  (concat snake (list position)))
-
-(defn step [game]
-  (let [{world :world
-         food :food
-         snake :snake
-         energy :energy
-         direction :direction
-         status :status} game
+(defn snake-step [game]
+  (let [{:keys [world food snake energy direction status]} game
         head (last snake)
-        front (translate head direction)]
+        front (translate head direction)
+        is-front? (fn [x] (= x front))]
     (cond (= status :dead)
             game
-          (in? front food)
+          (some is-front? food)
             (assoc game
                    :snake
-                   (move-snake snake front)
+                   (concat (rest snake) (list front))
                    :energy
                    (inc energy)
                    :food
-                   (remove (equals-to front) food))
-          (or (in? front snake) (not (= blank-mark (get-square world front))))
+                   (remove is-front? food))
+          (or (some is-front? snake)
+              (not (= blank-mark (get-square world front))))
             (assoc game :status :dead)
           :else
             (if (= energy 0)
-              (assoc game :snake (move-snake snake front))
+              (assoc game :snake (concat (rest snake) (list front)))
               (assoc game :snake
-                          (grow-snake snake front)
+                          (concat snake (list front))
                           :energy
                           (dec energy))))))
 
-(defn draw-game [game]
+(defn snake-draw [game]
   (let [{:keys [world food snake]} game]
        (reduce (partial draw-square food-mark)
           (reduce (partial draw-square snake-mark)
                   world
                   snake)
           food)))
+
+(defn snake-keyboard [game keypress]
+  (update-in game
+             [:direction]
+             (fn [direction]
+               (let [head (last (:snake game))
+                     neck (last (butlast (:snake game)))
+                     new-direction (cond (= keypress :up) [0 -1]
+                                         (= keypress :right) [1 0]
+                                         (= keypress :down) [0 1]
+                                         (= keypress :left) [-1 0])]
+                 (if (= neck (translate head new-direction))
+                   direction
+                   new-direction)))))
 
 (enable-console-print!)
 
@@ -109,7 +110,7 @@
   (reify
     om/IInitState
     (init-state [_]
-      {:game (SnakeGame. (square-grid 16 0)
+      {:world-state (SnakeGame. (square-grid 16 0)
                          `([4 3] [5 3])
                          `([1 3])
                          0
@@ -121,37 +122,23 @@
         (go (loop []
               (let [keypress (<! (om/get-state owner :keyboard-input))]
                 (om/update-state! owner
-                                  [:game :direction]
-                                  (fn [direction]
-                                    (let [new-direction (cond (= keypress :up)
-                                                                [0 -1]
-                                                              (= keypress :right)
-                                                                [1 0]
-                                                              (= keypress :down)
-                                                                [0 1]
-                                                              (= keypress :left)
-                                                                [-1 0])
-                                          snake (om/get-state owner [:game :snake])
-                                          head (last snake)
-                                          neck (last (butlast snake))]
-                                      (if (= neck (translate head new-direction))
-                                        direction
-                                        new-direction))))
+                                  :world-state
+                                  (fn [world-state] (snake-keyboard world-state keypress)))
                 (recur))))
         (js/setInterval (fn []
-                          (om/update-state! owner :game step))
+                          (om/update-state! owner :world-state snake-step))
                         250))
 
     om/IRenderState
     (render-state [this state]
-      (dom/div #js {:className "game scanlines"
+      (dom/div #js {:className "game"
                     :tabIndex "0"
                     :onKeyDown (fn [e]
                                   (put! (:keyboard-input state)
                                         (parse-key-code (.-keyCode e))))}
-               (if (= (get-in state [:game :status]) :dead)
+               (if (= (get-in state [:world-state :status]) :dead)
                  (render-screen (square-grid 16 1))
-                 (render-screen (draw-game (:game state))))))))
+                 (render-screen (snake-draw (:world-state state))))))))
 
 (om/root
   (fn [app owner]
